@@ -1,0 +1,20 @@
+{
+  "platform_url": "https://qurilish-qalqoni.vercel.app",
+  "key_id": "qqd_XXXXXXXXXXXXXXXXXXXXXXXX",
+  "secret": "MAXFIY_KALIT — yoki QQ_SECRET muhit o'zgaruvchisida saqlang",
+  "ppe_model": "models/ppe_yolov8s.pt",
+  "min_confidence": 0.5,
+  "analyze_fps": 3,
+  "heartbeat_sec": 30,
+  "event_cooldown_sec": 30,
+  "queue_path": "/var/lib/qq/queue.db",
+  "cameras": [
+    { "code": "KAM-01", "rtsp_url": "rtsp://user:pass@192.168.1.21:554/Streaming/Channels/101" },
+    { "code": "KAM-02", "rtsp_url": "rtsp://user:pass@192.168.1.22:554/Streaming/Channels/101" }
+  ],
+  "local_alarm": {
+    "siren_command": ["/opt/qq/siren.sh", "{camera}"],
+    "voice_command": ["aplay", "/opt/qq/diqqat_xavfli_zona.wav"],
+    "cooldown_sec": 15
+  }
+}

@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { min-height: 100%; }
+body { background: #F6F7F9; color: #0f172a; -webkit-font-smoothing: antialiased; }
+
+@media print {
+  aside, header, nav, .no-print { display: none !important; }
+  main { padding: 0 !important; }
+  body { background: white; }
+  .lg\:pl-\[264px\] { padding-left: 0 !important; }
+}
