@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_: Request, ctx: { params: Promise<{ kind: string; id: string }> }) {
   const user = await getUser();
   if (!user) return new Response('Unauthorized', { status: 401 });
+  if (user.mustChangePw) return new Response('Forbidden', { status: 403 });
   const { kind, id } = await ctx.params;
   if (!UUID_RE.test(id)) return new Response('Not found', { status: 404 });
 

@@ -113,7 +113,7 @@ export class AuthError extends Error {}
 export async function requireAction(perm: Perm): Promise<SessionUser> {
   const u = await getUser();
   if (!u) throw new AuthError('Sessiya tugagan. Qaytadan kiring.');
-  if (u.mustChangePw && perm !== 'view') throw new AuthError('Avval parolni almashtiring.');
+  if (u.mustChangePw) throw new AuthError('Avval parolni almashtiring.');
   if (!can(u.role, perm)) throw new AuthError("Bu amal uchun huquqingiz yo'q.");
   return u;
 }

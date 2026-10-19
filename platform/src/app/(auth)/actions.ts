@@ -30,6 +30,9 @@ export async function setupAdmin(_: FormState, fd: FormData): Promise<FormState>
   const expected = process.env.SETUP_TOKEN;
   if (!expected || expected.length < 16) return { error: 'Server SETUP_TOKEN sozlanmagan.', values: keep };
 
+  const [{ n: existing }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM users`;
+  if (existing > 0) return { error: "Tizim allaqachon o'rnatilgan. Kirish sahifasidan foydalaning." };
+
   const parsed = z.object({
     token: z.string().min(1).max(200),
     fullName: z.string().trim().min(3, 'Ism kamida 3 harf').max(100),
@@ -74,39 +77,29 @@ export async function login(_: FormState, fd: FormData): Promise<FormState> {
   if (!parsed.success) return { error: GENERIC, values: keep };
   const { email, password } = parsed.data;
 
-  const okIp = await rateLimit(`login:ip:${ip}`, 30, 900);
-  const okEmail = await rateLimit(`login:email:${email}`, 10, 900);
-  if (!okIp || !okEmail) {
-    await audit(null, 'login.rate_limited', email);
+  // 1) IP bo'yicha umumiy cheklov (har qanday urinish)
+  if (!(await rateLimit(`login:ip:${ip}`, 30, 900))) {
     return { error: "Juda ko'p urinish. 15 daqiqadan so'ng qayta urining.", values: keep };
   }
-
-  const [u] = await sql<{
-    id: string; password_hash: string; is_active: boolean; locked_until: Date | null; failed_logins: number; totp_enabled: boolean;
-  }[]>`SELECT id, password_hash, is_active, locked_until, failed_logins, totp_enabled FROM users WHERE lower(email) = ${email}`;
-
-  if (!u) {
+  // 2) Urinish "slot"i atomik band qilinadi: (email + IP) — 5 ta / 15 daq; email bo'yicha umumiy — 50 ta / 1 soat.
+  //    Muvaffaqiyatli kirishda slotlar tozalanadi, ya'ni amalda faqat XATO urinishlar sanaladi.
+  //    Shunday qilib begona odam o'z IP'sidan adminni bloklab qo'ya olmaydi, parallel so'rovlar ham limitni aylanib o'tolmaydi.
+  const failPair = `loginfail:${email}:${ip}`;
+  const failEmail = `loginfail:${email}`;
+  if (!(await rateLimit(failPair, MAX_FAILS, LOCK_MIN * 60)) || !(await rateLimit(failEmail, 50, 3600))) {
     await burnPasswordTime(password);
-    await audit(null, 'login.fail_unknown', email);
     return { error: GENERIC, values: keep };
   }
-  if (u.locked_until && new Date(u.locked_until) > new Date()) {
-    await burnPasswordTime(password);
-    await audit(u.id, 'login.locked');
+
+  const [u] = await sql<{ id: string; password_hash: string; is_active: boolean; totp_enabled: boolean }[]>`
+    SELECT id, password_hash, is_active, totp_enabled FROM users WHERE lower(email) = ${email}`;
+
+  const valid = u ? await verifyPassword(password, u.password_hash) : (await burnPasswordTime(password), false);
+  if (!u || !valid || !u.is_active) {
+    await audit(u?.id ?? null, u ? 'login.fail' : 'login.fail_unknown', u ? '' : email);
     return { error: GENERIC, values: keep };
   }
-  const valid = await verifyPassword(password, u.password_hash);
-  if (!valid || !u.is_active) {
-    const fails = u.failed_logins + 1;
-    if (fails >= MAX_FAILS) {
-      await sql`UPDATE users SET failed_logins = 0, locked_until = now() + make_interval(mins => ${LOCK_MIN}) WHERE id = ${u.id}`;
-      await audit(u.id, 'login.lockout');
-    } else {
-      await sql`UPDATE users SET failed_logins = ${fails} WHERE id = ${u.id}`;
-    }
-    await audit(u.id, 'login.fail');
-    return { error: GENERIC, values: keep };
-  }
+  await sql`DELETE FROM rate_events WHERE bucket IN (${failPair}, ${failEmail})`;
 
   await sql`UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ${u.id}`;
   await destroySession(); // sessiya fiksatsiyasidan himoya — eski tokenni bekor qilamiz
@@ -126,7 +119,6 @@ export async function verifyMfa(_: FormState, fd: FormData): Promise<FormState> 
   if (!userId) redirect('/login');
   if (!(await rateLimit(`mfa:${userId}`, 6, 300))) {
     await destroySession();
-    await audit(userId, 'mfa.rate_limited');
     return { error: "Juda ko'p noto'g'ri kod. Qaytadan kiring." };
   }
   const code = String(fd.get('code') ?? '').replace(/\s/g, '');
@@ -138,7 +130,10 @@ export async function verifyMfa(_: FormState, fd: FormData): Promise<FormState> 
     await audit(userId, 'mfa.fail');
     return { error: "Kod noto'g'ri yoki eskirgan." };
   }
-  await sql`UPDATE users SET totp_last_step = ${step}, last_login_at = now() WHERE id = ${userId}`;
+  // Atomik: bir kodni ikki marta (parallel so'rovda ham) ishlatib bo'lmaydi
+  const used = await sql`UPDATE users SET totp_last_step = ${step}, last_login_at = now()
+                         WHERE id = ${userId} AND totp_last_step < ${step} RETURNING id`;
+  if (!used.length) return { error: "Kod noto'g'ri yoki eskirgan." };
   await destroySession();
   await createSession(userId);
   await audit(userId, 'login.success_mfa');

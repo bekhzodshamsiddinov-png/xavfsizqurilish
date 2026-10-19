@@ -1,11 +1,18 @@
 import 'server-only';
 import { headers } from 'next/headers';
 
-/** Mijoz IP manzili (Vercel x-forwarded-for ni o'zi to'g'ri o'rnatadi). */
+/**
+ * Mijoz IP manzili. Vercel'da `x-vercel-forwarded-for` / `x-real-ip` ni platformaning o'zi o'rnatadi
+ * (mijoz soxtalashtira olmaydi). Boshqa muhitda — X-Forwarded-For dagi oxirgi (ishonchli proksi qo'shgan) qiymat.
+ */
 export async function clientIp(): Promise<string> {
   const h = await headers();
-  const xff = h.get('x-forwarded-for');
-  const ip = (xff ? xff.split(',')[0] : h.get('x-real-ip')) || '0.0.0.0';
+  const vercel = h.get('x-vercel-forwarded-for') || h.get('x-real-ip');
+  let ip = vercel ? vercel.split(',')[0] : '';
+  if (!ip) {
+    const xff = (h.get('x-forwarded-for') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    ip = xff[xff.length - 1] || '0.0.0.0';
+  }
   return ip.trim().slice(0, 64);
 }
 

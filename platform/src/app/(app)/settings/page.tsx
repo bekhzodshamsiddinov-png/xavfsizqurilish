@@ -56,7 +56,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [users, telegram, auditRows, [{ n: demoCount }]] = await Promise.all([
     canUsers
       ? sql<UserRow[]>`
-          SELECT id, full_name, email, role, totp_enabled, last_login_at, is_active, locked_until, must_change_pw
+          SELECT id, full_name, email, role, totp_enabled, last_login_at, is_active, must_change_pw,
+            CASE WHEN (SELECT count(*) FROM rate_events r WHERE r.bucket = 'loginfail:' || lower(users.email) AND r.at > now() - interval '1 hour') >= 50
+                 THEN now() + interval '1 hour' END AS locked_until
           FROM users ORDER BY is_active DESC, created_at`
       : Promise.resolve([] as UserRow[]),
     getTelegramSettings(),

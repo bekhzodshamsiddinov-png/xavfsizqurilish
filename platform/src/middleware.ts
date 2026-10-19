@@ -13,7 +13,7 @@ function csp(nonce: string, local: boolean) {
     "media-src 'self' blob:",
     "font-src 'self'",
     // Brauzer detektori AI modelini Google Cloud Storage'dan yuklaydi
-    "connect-src 'self' https://storage.googleapis.com https://tfhub.dev https://www.kaggle.com",
+    "connect-src 'self' https://storage.googleapis.com/tfjs-models/",
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
@@ -32,7 +32,7 @@ export function middleware(req: NextRequest) {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && !pathname.startsWith('/api/v1/')) {
     const origin = req.headers.get('origin');
     const site = req.headers.get('sec-fetch-site');
-    const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+    const host = req.headers.get('host');
     let ok = true;
     if (origin) {
       try { ok = new URL(origin).host === host; } catch { ok = false; }

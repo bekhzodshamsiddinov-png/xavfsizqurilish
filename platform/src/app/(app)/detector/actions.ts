@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { sql } from '@/lib/db';
-import { createAlert, parseJpegBase64 } from '@/lib/alerts';
+import { createAlert, parseJpegBase64, runEscalations } from '@/lib/alerts';
 import { rateLimit } from '@/lib/security/ratelimit';
 import { AuthError, requireAction } from '@/lib/security/session';
 import { currentSite } from '@/lib/site';
@@ -53,6 +53,7 @@ export async function reportDetection(input: z.infer<typeof Report>): Promise<Re
       siteId: cam.site_id, cameraId: cam.id, zoneId, type: p.data.type, severity: 'kritik',
       detail, source: 'browser', eventUid: `br:${randomUUID()}`, snapshot: snap,
     });
+    await runEscalations().catch(() => {});
     return { ok: true };
   } catch (e) {
     if (e instanceof AuthError) return { ok: false, error: e.message };
@@ -75,6 +76,7 @@ export async function pushFrame(input: z.infer<typeof Frame>): Promise<Result> {
     let snap: Buffer | null;
     try { snap = parseJpegBase64(p.data.snapshot); } catch { return { ok: false }; }
     await sql`UPDATE cameras SET last_seen_at = now(), last_snapshot = ${snap}, last_snapshot_at = now() WHERE id = ${cam.id}`;
+    await runEscalations().catch(() => {});
     await sql`
       INSERT INTO daily_stats (site_id, day, persons_checked) VALUES (${cam.site_id}, (now() AT TIME ZONE 'Asia/Tashkent')::date, ${p.data.people})
       ON CONFLICT (site_id, day) DO UPDATE SET persons_checked = daily_stats.persons_checked + EXCLUDED.persons_checked`;

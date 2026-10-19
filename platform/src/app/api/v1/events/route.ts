@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db';
 import { createAlert, parseJpegBase64, runEscalations } from '@/lib/alerts';
 import { authenticateDevice, deviceError } from '@/lib/device-auth';
+import { rateLimit } from '@/lib/security/ratelimit';
 import { ALERT_TYPES, SEVERITIES, defaultSeverity } from '@/lib/labels';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,8 @@ const Event = z.object({
 export async function POST(req: Request) {
   try {
     const { device, body } = await authenticateDevice(req);
+    // Bitta qurilma daqiqasiga 30 tadan ortiq hodisa yubora olmaydi (nosoz yoki buzilgan qurilmadan himoya)
+    if (!(await rateLimit(`devev:${device.id}`, 30, 60))) return Response.json({ error: 'Hodisalar juda ko\'p' }, { status: 429 });
     let json: unknown;
     try { json = JSON.parse(body); } catch { return Response.json({ error: 'JSON noto\'g\'ri' }, { status: 400 }); }
     const p = Event.safeParse(json);

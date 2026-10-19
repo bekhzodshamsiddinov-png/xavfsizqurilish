@@ -78,6 +78,7 @@ export async function confirmTotp(_: FormState, fd: FormData): Promise<FormState
       return { error: "Kod noto'g'ri yoki eskirgan. Telefon vaqti to'g'riligini tekshiring." };
     }
     await sql`UPDATE users SET totp_enabled = true, totp_last_step = ${step} WHERE id = ${user.id} AND totp_enabled = false`;
+    await destroyAllSessions(user.id, user.tokenHash); // 2FA'dan oldin o'g'irlangan sessiyalar ham yopiladi
     await audit(user.id, 'mfa.enabled');
     revalidatePath('/account');
     return { ok: "2FA yoqildi. Endi har kirishda ilovadagi kod so'raladi." };
@@ -103,6 +104,7 @@ export async function disableTotp(_: FormState, fd: FormData): Promise<FormState
       return { error: "Parol yoki kod noto'g'ri." };
     }
     await sql`UPDATE users SET totp_enabled = false, totp_secret_enc = NULL, totp_last_step = ${step} WHERE id = ${user.id}`;
+    await destroyAllSessions(user.id, user.tokenHash);
     await audit(user.id, 'mfa.disabled');
     revalidatePath('/account');
     return { ok: "2FA o'chirildi. Hisobingizni himoya qilish uchun uni qayta yoqishni tavsiya qilamiz." };

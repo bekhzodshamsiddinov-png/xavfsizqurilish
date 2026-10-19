@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { sql } from '@/lib/db';
 import { audit } from '@/lib/security/audit';
 import { AuthError, requireAction } from '@/lib/security/session';
+import { can } from '@/lib/security/rbac';
 import { currentSite } from '@/lib/site';
 
 export type FormState = { error?: string; ok?: string } | undefined;
@@ -25,18 +26,28 @@ export async function handleAlert(_: FormState, fd: FormData): Promise<FormState
     if (!site) return { error: 'Obyekt tanlanmagan' };
 
     // Signal joriy obyektga tegishli bo'lishi shart
-    const [a] = await sql<{ id: string; status: string }[]>`SELECT id, status FROM alerts WHERE id = ${id} AND site_id = ${site.id}`;
+    const [a] = await sql<{ id: string; status: string; severity: string; assignee_id: string | null }[]>`
+      SELECT id, status, severity, assignee_id FROM alerts WHERE id = ${id} AND site_id = ${site.id}`;
     if (!a) return { error: 'Signal topilmadi' };
+    // Kritik signalni "yolg'on" deb faqat nazoratchi yoki admin belgilay oladi
+    if (op === 'false_positive' && a.severity === 'kritik' && !can(user.role, 'zone.edit')) {
+      return { error: "Kritik signalni yolg'on deb belgilash uchun nazoratchi huquqi kerak" };
+    }
 
     if (op === 'take') {
-      if (a.status === 'hal') return { error: 'Signal allaqachon hal qilingan' };
-      await sql`UPDATE alerts SET status = 'korib', assignee_id = ${user.id}, acknowledged_at = coalesce(acknowledged_at, now()) WHERE id = ${id}`;
+      const r = await sql`UPDATE alerts SET status = 'korib', assignee_id = ${user.id}, acknowledged_at = coalesce(acknowledged_at, now())
+                          WHERE id = ${id} AND status = 'yangi' RETURNING id`;
+      if (!r.length) return { error: 'Signalni allaqachon boshqa xodim olgan yoki u yopilgan' };
     } else if (op === 'resolve' || op === 'false_positive') {
-      await sql`UPDATE alerts SET status = 'hal', resolved_by = ${user.id}, resolved_at = now(),
+      const r = await sql`UPDATE alerts SET status = 'hal', resolved_by = ${user.id}, resolved_at = now(),
                   acknowledged_at = coalesce(acknowledged_at, now()), assignee_id = coalesce(assignee_id, ${user.id}),
-                  false_positive = ${op === 'false_positive'}, notes = ${notes} WHERE id = ${id}`;
+                  false_positive = ${op === 'false_positive'}, notes = ${notes}
+                  WHERE id = ${id} AND status <> 'hal' RETURNING id`;
+      if (!r.length) return { error: 'Signal allaqachon yopilgan' };
     } else {
-      await sql`UPDATE alerts SET status = 'korib', resolved_at = NULL, resolved_by = NULL, false_positive = false WHERE id = ${id}`;
+      const r = await sql`UPDATE alerts SET status = 'korib', resolved_at = NULL, resolved_by = NULL, false_positive = false,
+                          notes = notes || ${`\n[qayta ochildi: ${user.fullName}]`} WHERE id = ${id} AND status = 'hal' RETURNING id`;
+      if (!r.length) return { error: 'Signal ochiq holatda' };
     }
     await audit(user.id, `alert.${op}`, id);
     revalidatePath('/alerts');

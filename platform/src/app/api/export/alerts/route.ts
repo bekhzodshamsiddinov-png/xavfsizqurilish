@@ -17,6 +17,7 @@ function cell(v: unknown) {
 export async function GET() {
   const user = await getUser();
   if (!user) return new Response('Unauthorized', { status: 401 });
+  if (user.mustChangePw) return new Response('Forbidden', { status: 403 });
   if (!can(user.role, 'report.export')) return new Response('Forbidden', { status: 403 });
   const site = await currentSite();
   if (!site) return new Response('Not found', { status: 404 });

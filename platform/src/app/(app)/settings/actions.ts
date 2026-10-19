@@ -136,7 +136,10 @@ export async function unlockUser(_: FormState, fd: FormData): Promise<FormState>
   return guard(async () => {
     const p = targetSchema.safeParse(Object.fromEntries(fd));
     if (!p.success) return { error: 'Foydalanuvchi topilmadi.' };
-    await sql`UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ${p.data.userId}`;
+    const [t] = await sql<{ email: string }[]>`UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ${p.data.userId} RETURNING lower(email) AS email`;
+    if (!t) return { error: 'Foydalanuvchi topilmadi.' };
+    const prefix = `loginfail:${t.email}`;
+    await sql`DELETE FROM rate_events WHERE bucket = ${prefix} OR left(bucket, ${prefix.length + 1}) = ${prefix + ':'}`;
     await audit(user.id, 'user.unlocked', p.data.userId);
     revalidatePath('/settings');
     return { ok: 'Blok olib tashlandi.' };
@@ -149,6 +152,7 @@ export async function resetTotp(_: FormState, fd: FormData): Promise<FormState> 
     const id = parseTarget(fd, user, "O'z 2FA sozlamangizni 'Hisobim' sahifasida o'zgartiring.");
     const rows = await sql`UPDATE users SET totp_enabled = false, totp_secret_enc = NULL WHERE id = ${id} RETURNING id`;
     if (!rows.length) return { error: 'Foydalanuvchi topilmadi.' };
+    await sql`DELETE FROM sessions WHERE user_id = ${id}`;
     await audit(user.id, 'user.mfa_reset', id);
     revalidatePath('/settings');
     return { ok: "2FA o'chirildi. Foydalanuvchi keyingi kirishda uni qayta yoqishi mumkin." };

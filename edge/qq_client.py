@@ -16,6 +16,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 
 class PlatformError(Exception):
@@ -26,7 +27,8 @@ class PlatformError(Exception):
 
 class QQClient:
     def __init__(self, base_url: str, key_id: str, secret: str, timeout: float = 10.0):
-        if not base_url.startswith("https://") and "localhost" not in base_url and "127.0.0.1" not in base_url:
+        u = urlparse(base_url)
+        if u.scheme != "https" and not (u.scheme == "http" and u.hostname in {"localhost", "127.0.0.1"}):
             raise ValueError("Platforma manzili faqat HTTPS bo'lishi kerak")
         self.base_url = base_url.rstrip("/")
         self.key_id = key_id

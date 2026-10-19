@@ -12,6 +12,25 @@ import { rateLimit } from '@/lib/security/ratelimit';
 export const MAX_BODY = 640 * 1024;
 const SKEW_SEC = 300;
 
+/** Tanani bayt chegarasi bilan o'qiydi (Content-Length bo'lmasa ham xotirani to'ldirib bo'lmaydi). */
+async function readCapped(req: Request, max: number): Promise<string> {
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      throw new DeviceAuthError(413, 'So\'rov juda katta');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export class DeviceAuthError extends Error {
   constructor(public status: number, msg: string) { super(msg); }
 }
@@ -28,10 +47,13 @@ export async function authenticateDevice(req: Request): Promise<{ device: Device
   }
   if (Math.abs(Date.now() / 1000 - Number(ts)) > SKEW_SEC) throw new DeviceAuthError(401, 'Vaqt tamg\'asi eskirgan');
 
+  // Autentifikatsiyadan OLDIN IP bo'yicha cheklov — imzosiz so'rovlar bilan bazani bosib bo'lmaydi
+  const ip = (req.headers.get('x-vercel-forwarded-for') || req.headers.get('x-real-ip') || 'unknown').split(',')[0].trim().slice(0, 64);
+  if (!(await rateLimit(`devip:${ip}`, 600, 60))) throw new DeviceAuthError(429, 'Juda ko\'p so\'rov');
+
   const len = Number(req.headers.get('content-length') ?? '0');
   if (len > MAX_BODY) throw new DeviceAuthError(413, 'So\'rov juda katta');
-  const body = await req.text();
-  if (Buffer.byteLength(body) > MAX_BODY) throw new DeviceAuthError(413, 'So\'rov juda katta');
+  const body = await readCapped(req, MAX_BODY);
 
   const [d] = await sql<{ id: string; site_id: string; name: string; secret_enc: string }[]>`
     SELECT id, site_id, name, secret_enc FROM devices WHERE key_id = ${keyId} AND revoked_at IS NULL`;

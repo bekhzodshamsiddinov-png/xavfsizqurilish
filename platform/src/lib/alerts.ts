@@ -75,9 +75,9 @@ export async function sendTelegramText(chatId: string, html: string) {
 }
 
 /** level 1 — prorab/nazoratchi guruhi; level 2 — eskalatsiya (xavfsizlik boshlig'i). */
-export async function notifyAlert(alertId: string, level: 1 | 2) {
+export async function notifyAlert(alertId: string, level: 1 | 2): Promise<'sent' | 'skipped' | 'failed'> {
   const s = await getTelegramSettings();
-  if (!s.enabled || !process.env.TELEGRAM_BOT_TOKEN) return;
+  if (!s.enabled || !process.env.TELEGRAM_BOT_TOKEN) return 'skipped';
   const groupChat = level === 2 ? s.escalationChatId || s.chatId : s.chatId;
   // Kritik signal shaxsiy chat ID kiritgan prorab/nazoratchi/adminlarga ham boradi
   const personal = await sql<{ telegram_chat_id: string }[]>`
@@ -85,16 +85,17 @@ export async function notifyAlert(alertId: string, level: 1 | 2) {
     WHERE a.id = ${alertId} AND a.severity = 'kritik' AND u.is_active AND u.telegram_chat_id IS NOT NULL
       AND u.telegram_chat_id <> '' AND u.role IN ('admin','nazoratchi','prorab')`;
   const chats = [...new Set([groupChat, ...personal.map((p) => p.telegram_chat_id)].filter(Boolean))].slice(0, 20);
-  if (!chats.length) return;
+  if (!chats.length) return 'skipped';
   const [a] = await sql<{ type: AlertType; severity: Severity; detail: string; detected_at: Date; snapshot: Buffer | null; site: string; cam: string | null; floor: string | null }[]>`
     SELECT a.type, a.severity, a.detail, a.detected_at, a.snapshot, s.name AS site, c.name AS cam, c.floor
     FROM alerts a JOIN sites s ON s.id = a.site_id LEFT JOIN cameras c ON c.id = a.camera_id WHERE a.id = ${alertId}`;
-  if (!a) return;
+  if (!a) return 'skipped';
   const head = level === 2 ? '🚨 <b>ESKALATSIYA — 2 daqiqada javob berilmadi!</b>\n' : '';
   const text = `${head}⚠️ <b>${esc(alertTypeLabel[a.type])}</b> · ${severityMeta[a.severity].label}\n` +
     `📍 ${esc(a.site)}${a.cam ? ` · ${esc(a.cam)}` : ''}${a.floor ? ` · ${esc(a.floor)}` : ''}\n` +
     (a.detail ? `${esc(a.detail)}\n` : '') +
     `🕒 ${new Date(a.detected_at).toLocaleString('uz-UZ', { timeZone: 'Asia/Tashkent' })}`;
+  let anyOk = false;
   for (const chat of chats) {
     if (a.snapshot) {
       const fd = new FormData();
@@ -102,11 +103,12 @@ export async function notifyAlert(alertId: string, level: 1 | 2) {
       fd.set('caption', text);
       fd.set('parse_mode', 'HTML');
       fd.set('photo', new Blob([new Uint8Array(a.snapshot)], { type: 'image/jpeg' }), 'kadr.jpg');
-      await tg('sendPhoto', fd).catch(() => false);
+      anyOk = (await tg('sendPhoto', fd).catch(() => false)) || anyOk;
     } else {
-      await sendTelegramText(chat, text).catch(() => false);
+      anyOk = (await sendTelegramText(chat, text).catch(() => false)) || anyOk;
     }
   }
+  return anyOk ? 'sent' : 'failed';
 }
 
 /**
@@ -122,5 +124,9 @@ export async function runEscalations() {
         AND created_at < now() - interval '2 minutes' AND created_at > now() - interval '1 day'
       LIMIT 10)
     RETURNING id`;
-  for (const r of rows) await notifyAlert(r.id, 2).catch(() => {});
+  for (const r of rows) {
+    const res = await notifyAlert(r.id, 2).catch(() => 'failed' as const);
+    // Yuborilmagan bo'lsa — keyingi chaqiriqda qayta urinish uchun bayroqni qaytaramiz
+    if (res === 'failed') await sql`UPDATE alerts SET escalation_level = 1 WHERE id = ${r.id} AND status = 'yangi'`;
+  }
 }
