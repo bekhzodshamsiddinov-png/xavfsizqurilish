@@ -1,5 +1,7 @@
 # 🛡️ Qurilish Qalqoni
 
+🌐 **Ishlayotgan platforma:** https://qurilish-qalqoni.vercel.app  ·  📁 Kod: [`platform/`](platform) (veb-platforma), [`edge/`](edge) (obyektdagi qurilma agenti), [`web/`](web) (dizayn prototipi)
+
 **Kuzatuv kameralari va sun'iy intellekt yordamida qurilish obyektlarida jarohat va o'lim holatlarining oldini oluvchi platforma.**
 
 Tizim quruvchi va xodimlarning maxsus uniforma hamda himoya vositalari (kaska, signal yelek, strahovka kamari) bilan jihozlanganligini real vaqtda tekshiradi. Belgilangan xavfli zonaga yaqinlashgan odamga — joyning o'zida sirena va ovozli xabar orqali, qurilish kompaniyasi nazoratchilariga esa Telegram, SMS va dastur orqali ogohlantirish beradi.
