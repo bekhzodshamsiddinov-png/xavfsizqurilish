@@ -8,7 +8,8 @@ import { LoginForm } from '../forms';
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Kirish' };
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const sp = await searchParams;
   if (!isDbConfigured()) {
     return <Notice tone="warn">Ma'lumotlar bazasi hali ulanmagan. Administrator Vercel'da Neon bazasini ulashi kerak.</Notice>;
   }
@@ -18,6 +19,7 @@ export default async function LoginPage() {
     <div>
       <h1 className="text-2xl font-bold tracking-tight text-slate-900">Tizimga kirish</h1>
       <p className="mt-1 text-sm text-slate-500">Xavfsizlik paneliga kirish uchun hisob ma'lumotlaringizni kiriting.</p>
+      {sp.tiklandi === '1' && <div className="mt-6"><Notice tone="ok">Parol yangilandi. Endi yangi parol bilan kiring.</Notice></div>}
       <div className="mt-8">
         {n === 0 ? (
           <Notice tone="info">

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/setup', '/api/v1/', '/api/health'];
+const PUBLIC_PATHS = ['/login', '/setup', '/recover', '/api/v1/', '/api/health'];
 const SESSION_COOKIE = '__Host-qq_sid';
 
 function csp(nonce: string, local: boolean) {
